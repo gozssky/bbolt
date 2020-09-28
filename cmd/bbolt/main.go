@@ -128,6 +128,8 @@ func (m *Main) Run(args ...string) error {
 		return newPagesCommand(m).Run(args[1:]...)
 	case "stats":
 		return newStatsCommand(m).Run(args[1:]...)
+	case "delete-bucket":
+		return newDeleteBucketCommand(m).Run(args[1:]...)
 	default:
 		return ErrUnknownCommand
 	}
@@ -144,19 +146,20 @@ Usage:
 
 The commands are:
 
-    bench       run synthetic benchmark against bolt
-    buckets     print a list of buckets
-    check       verifies integrity of bolt database
-    compact     copies a bolt database, compacting it in the process
-    dump        print a hexadecimal dump of a single page
-    get         print the value of a key in a bucket
-    info        print basic info
-    keys        print a list of keys in a bucket
-    help        print this screen
-    page        print one or more pages in human readable format
-    pages       print list of pages with their types
-    page-item   print the key and value of a page item.
-    stats       iterate over all pages and generate usage stats
+    bench          run synthetic benchmark against bolt
+    buckets        print a list of buckets
+    check          verifies integrity of bolt database
+    compact        copies a bolt database, compacting it in the process
+    dump           print a hexadecimal dump of a single page
+    get            print the value of a key in a bucket
+    info           print basic info
+    keys           print a list of keys in a bucket
+    help           print this screen
+    page           print one or more pages in human readable format
+    pages          print list of pages with their types
+    page-item      print the key and value of a page item.
+    stats          iterate over all pages and generate usage stats
+    delete-bucket  delete a bucket
 
 Use "bolt [command] -h" for more information about a command.
 `, "\n")
@@ -2132,5 +2135,62 @@ Additional options include:
 	-tx-max-size NUM
 		Specifies the maximum size of individual transactions.
 		Defaults to 64KB.
+`, "\n")
+}
+
+// DeleteBucketCommand represents the "delete-bucket" command execution.
+type DeleteBucketCommand struct {
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
+}
+
+func newDeleteBucketCommand(m *Main) *DeleteBucketCommand {
+	return &DeleteBucketCommand{
+		Stdin:  m.Stdin,
+		Stdout: m.Stdout,
+		Stderr: m.Stderr,
+	}
+}
+
+func (cmd *DeleteBucketCommand) Run(args ...string) error {
+	// Parse flags.
+	fs := flag.NewFlagSet("", flag.ContinueOnError)
+	help := fs.Bool("h", false, "")
+	if err := fs.Parse(args); err != nil {
+		return err
+	} else if *help {
+		fmt.Fprintln(cmd.Stderr, cmd.Usage())
+		return ErrUsage
+	}
+
+	// Require database path and bucket.
+	path, bucket := fs.Arg(0), fs.Arg(1)
+	if path == "" {
+		return ErrPathRequired
+	} else if _, err := os.Stat(path); os.IsNotExist(err) {
+		return ErrFileNotFound
+	} else if bucket == "" {
+		return ErrBucketRequired
+	}
+
+	// Open database.
+	db, err := bolt.Open(path, 0666, nil)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// Delete bucket.
+	return db.Update(func(tx *bolt.Tx) error {
+		return tx.DeleteBucket([]byte(bucket))
+	})
+}
+
+func (cmd *DeleteBucketCommand) Usage() string {
+	return strings.TrimLeft(`
+usage: bolt delete-bucket PATH BUCKET
+
+Delete the given bucket.
 `, "\n")
 }
